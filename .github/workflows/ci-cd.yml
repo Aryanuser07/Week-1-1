@@ -142,18 +142,20 @@ jobs:
           if [ -n "$RENDER_DEPLOY_HOOK_URL" ]; then
             echo "🚀 Deploy hook detected — triggering real deployment to Render..."
             curl -X POST "$RENDER_DEPLOY_HOOK_URL"
+            # Replace with your actual Render service URL once deployed
             echo "staging_url=https://your-app.onrender.com" >> "$GITHUB_OUTPUT"
           else
-            echo "⚠️ No deployment secret configured — simulating deployment."
+            echo "⚠️ No RENDER_DEPLOY_HOOK_URL secret configured — running in SIMULATION mode."
+            echo "No real deployment target exists, so no live URL is produced."
             echo "-------------------------------------------------"
-            echo "Simulated deploy steps:"
+            echo "Simulated deploy steps (what a real deploy would do):"
             echo "1. Load Docker image cicd-pipeline-demo:${{ github.sha }}"
             echo "2. Push image to staging registry"
             echo "3. Roll out new container on staging environment"
             echo "4. Run smoke test against /health endpoint"
             echo "-------------------------------------------------"
-            echo "✅ Simulated deployment completed successfully."
-            echo "staging_url=https://staging.simulated.local" >> "$GITHUB_OUTPUT"
+            echo "✅ Simulated deployment completed successfully (no live URL)."
+            echo "staging_url=" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Deployment summary
@@ -161,4 +163,8 @@ jobs:
           echo "### 🚀 Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Triggered by: ${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Staging URL: ${{ steps.set-url.outputs.staging_url }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${{ steps.set-url.outputs.staging_url }}" ]; then
+            echo "- Staging URL: ${{ steps.set-url.outputs.staging_url }}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Mode: **Simulated** — no live staging environment connected (add \`RENDER_DEPLOY_HOOK_URL\` secret for real deploys)." >> "$GITHUB_STEP_SUMMARY"
+          fi

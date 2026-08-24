@@ -59,7 +59,7 @@ cicd-pipeline-demo/
 3. In your GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**.
 4. Name it `RENDER_DEPLOY_HOOK_URL` and paste the URL as the value.
 
-Without this secret, the pipeline still runs end-to-end — the deploy job logs each simulated step (load image → push to registry → roll out → smoke test) and finishes green.
+Without this secret, the pipeline still runs end-to-end in **simulation mode** — the deploy job logs each step it *would* take (load image → push to registry → roll out → smoke test) and finishes green, but it does **not** produce a live URL, since nothing is actually deployed. This keeps the pipeline fully demonstrable without requiring paid cloud infrastructure, while being explicit that no real environment exists yet.
 
 ## Running Locally
 
