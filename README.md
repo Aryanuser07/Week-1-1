@@ -98,7 +98,3 @@ You can watch it live under the **Actions** tab of the repository, and check the
 - **Simulated deploy fallback** ensures the pipeline is fully runnable and demonstrable even without paid cloud infrastructure, while still showing exactly how a real deployment would be wired in.
 - **Artifacts (coverage report, Docker image)** are passed between jobs via `actions/upload-artifact` / `download-artifact` instead of rebuilding, saving CI time and mirroring how real pipelines hand off build outputs to deploy stages.
 - **`concurrency` group** cancels superseded runs on the same branch, avoiding wasted CI minutes on rapid pushes.
-
-## License
-
-MIT
