@@ -1,0 +1,164 @@
+name: CI/CD Pipeline
+
+# Trigger on every push and PR targeting main, so the workflow validates
+# feature branches before merge, and re-validates + deploys on merge to main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Avoid piling up redundant runs when someone pushes multiple commits quickly.
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  # ---------------------------------------------------------------------
+  # JOB 1: Install deps + Lint (fails fast on code quality issues)
+  # ---------------------------------------------------------------------
+  lint:
+    name: Lint & Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+  # ---------------------------------------------------------------------
+  # JOB 2: Run test suite with coverage
+  # ---------------------------------------------------------------------
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm test
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 5
+
+  # ---------------------------------------------------------------------
+  # JOB 3: Build the app (build-check + Docker image)
+  # ---------------------------------------------------------------------
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run build step
+        run: npm run build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: cicd-pipeline-demo:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/app-image.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp/app-image.tar
+          retention-days: 5
+
+  # ---------------------------------------------------------------------
+  # JOB 4: Deploy to staging — only runs on a push to main (not on PRs)
+  # Deploys for real if a RENDER_DEPLOY_HOOK_URL secret is configured;
+  # otherwise it simulates the deployment so the pipeline stays fully
+  # runnable even without a live cloud target.
+  # ---------------------------------------------------------------------
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: staging
+      url: ${{ steps.set-url.outputs.staging_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp
+
+      - name: Deploy (real if secret present, simulated otherwise)
+        id: set-url
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -n "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "🚀 Deploy hook detected — triggering real deployment to Render..."
+            curl -X POST "$RENDER_DEPLOY_HOOK_URL"
+            echo "staging_url=https://your-app.onrender.com" >> "$GITHUB_OUTPUT"
+          else
+            echo "⚠️ No deployment secret configured — simulating deployment."
+            echo "-------------------------------------------------"
+            echo "Simulated deploy steps:"
+            echo "1. Load Docker image cicd-pipeline-demo:${{ github.sha }}"
+            echo "2. Push image to staging registry"
+            echo "3. Roll out new container on staging environment"
+            echo "4. Run smoke test against /health endpoint"
+            echo "-------------------------------------------------"
+            echo "✅ Simulated deployment completed successfully."
+            echo "staging_url=https://staging.simulated.local" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deployment summary
+        run: |
+          echo "### 🚀 Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Triggered by: ${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Staging URL: ${{ steps.set-url.outputs.staging_url }}" >> "$GITHUB_STEP_SUMMARY"
